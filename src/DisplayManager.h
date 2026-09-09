@@ -7,6 +7,7 @@
 class DisplayManager {
 public:
     void init();
+    void setAutoContrast(int ambientLightRaw);
     void render(SystemMode mode, int page, const LiveSnapshot& snap, const TripManager& trip, bool pointToNorth);
 
 private:

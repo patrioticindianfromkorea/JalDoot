@@ -7,12 +7,14 @@
 #include "TripManager.h"
 #include "DisplayManager.h"
 #include "ButtonController.h"
+#include "CompassPointer.h"
 
 static SensorHub        sensors;
 static WeatherApi       weather;
 static TripManager      trip;
 static DisplayManager   gui;
 static ButtonController button;
+static CompassPointer   pointer(0, 1, 18, 2048);
 
 static LiveSnapshot snapshot;
 static SystemMode currentMode = SystemMode::LOGGING;
@@ -21,6 +23,7 @@ static bool pointerToNorth = true;
 
 static unsigned long lastApiQuery = 0;
 static unsigned long lastSensorUpdate = 0;
+static unsigned long lastFastTick = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -31,12 +34,16 @@ void setup() {
     gui.init();
     button.init(Pins::BUTTON_PIN);
     weather.init();
+    pointer.init();
 }
 
 void loop() {
     unsigned long now = millis();
 
-    // 1. Button Handling
+    // 1. High-frequency non-blocking stepper pulse
+    pointer.tick();
+
+    // 2. Button Control Events
     ButtonEvent evt = button.update();
     if (evt == ButtonEvent::SHORT_PRESS) {
         Buzzer::shortBeep();
@@ -49,7 +56,7 @@ void loop() {
         Buzzer::doubleBeep();
         if (currentMode == SystemMode::LOGGING) {
             currentMode = SystemMode::FISHING;
-            if (snapshot.gpsValid) {
+            if (snapshot.gpsValid || snapshot.isDeadReckoning) {
                 trip.setStartPoint(snapshot.latitude, snapshot.longitude);
             }
         } else {
@@ -57,28 +64,44 @@ void loop() {
         }
     } else if (evt == ButtonEvent::DOUBLE_CLICK) {
         Buzzer::shortBeep();
-        if (currentMode == SystemMode::LOGGING && snapshot.gpsValid) {
+        if (currentMode == SystemMode::LOGGING && (snapshot.gpsValid || snapshot.isDeadReckoning)) {
             weather.fetch(snapshot.latitude, snapshot.longitude, snapshot);
-        } else if (currentMode == SystemMode::FISHING && snapshot.gpsValid) {
+        } else if (currentMode == SystemMode::FISHING && (snapshot.gpsValid || snapshot.isDeadReckoning)) {
             trip.setStartPoint(snapshot.latitude, snapshot.longitude);
         }
     }
 
-    // 2. High-Frequency Sensor Update (10Hz)
+    // 3. High-Frequency Polling Loop (10Hz)
     if (now - lastSensorUpdate >= 100) {
+        float dt = (now - lastSensorUpdate) / 1000.0f;
         lastSensorUpdate = now;
-        sensors.update(snapshot);
 
-        // Water alarm check
-        if (snapshot.waterRaw > Thresholds::BILGE_HIGH_ABOVE) {
-            Buzzer::shortBeep();
+        sensors.update(snapshot);
+        trip.updateDeadReckoning(snapshot, dt);
+
+        // Auto contrast adjustment using TEMT6000
+        gui.setAutoContrast(snapshot.lightRaw);
+
+        // Safety Audibles
+        if (snapshot.capsizeAlarm) {
+            Buzzer::emergencyTone();
+        } else if (snapshot.baroState == BaroTendency::STORM_WARNING || snapshot.bilgeAlarm) {
+            Buzzer::stormAlarm();
+        }
+
+        // Stepper Target Steering
+        if (currentMode == SystemMode::LOGGING || pointerToNorth) {
+            pointer.updateTargetAngle(360.0f - snapshot.headingDeg);
+        } else if (trip.hasStartFix()) {
+            float bearing = trip.getBearingToStart(snapshot.latitude, snapshot.longitude);
+            pointer.updateTargetAngle(bearing - snapshot.headingDeg);
         }
 
         gui.render(currentMode, oledPage, snapshot, trip, pointerToNorth);
     }
 
-    // 3. Open-Meteo Fetch (Every 60s in Logging Mode)
-    if (currentMode == SystemMode::LOGGING && snapshot.gpsValid) {
+    // 4. Periodic Weather Fetch (60s)
+    if (currentMode == SystemMode::LOGGING && (snapshot.gpsValid || snapshot.isDeadReckoning)) {
         if (now - lastApiQuery >= 60000 || lastApiQuery == 0) {
             lastApiQuery = now;
             weather.fetch(snapshot.latitude, snapshot.longitude, snapshot);
