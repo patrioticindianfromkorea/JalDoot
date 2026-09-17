@@ -1,4 +1,3 @@
-// src/ButtonController.cpp
 #include "ButtonController.h"
 
 void ButtonController::init(int p) {
@@ -24,7 +23,7 @@ ButtonEvent ButtonController::update() {
         }
     }
 
-    if (clickCount > 0 && (now - lastReleaseTime > 300)) {
+    if (clickCount > 0 && (now - lastReleaseTime > 280)) {
         evt = (clickCount == 1) ? ButtonEvent::SHORT_PRESS : ButtonEvent::DOUBLE_CLICK;
         clickCount = 0;
     }

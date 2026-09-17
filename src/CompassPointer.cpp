@@ -16,8 +16,7 @@ void CompassPointer::init() {
 }
 
 void CompassPointer::setEnabled(bool enabled) {
-    // Most stepper drivers (A4988, DRV8825, MP6500) are Active LOW for enable
-    digitalWrite(_enPin, enabled ? LOW : HIGH);
+    digitalWrite(_enPin, enabled ? LOW : HIGH); // Active LOW
 }
 
 float CompassPointer::normalizeDeg(float deg) {
@@ -33,9 +32,8 @@ long CompassPointer::angleToSteps(float deg) {
 
 void CompassPointer::updateTargetAngle(float targetAngleDeg) {
     long target = angleToSteps(targetAngleDeg);
-
-    // Calculate shortest path around the circle
     long diff = (target - (_currentStep % _stepsPerRev));
+    
     if (diff > (_stepsPerRev / 2)) {
         diff -= _stepsPerRev;
     } else if (diff < -(_stepsPerRev / 2)) {
@@ -60,7 +58,6 @@ void CompassPointer::tick() {
             _currentStep--;
         }
 
-        // Pulse the step pin
         digitalWrite(_stepPin, HIGH);
         delayMicroseconds(4);
         digitalWrite(_stepPin, LOW);

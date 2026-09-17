@@ -1,4 +1,3 @@
-// src/TripManager.h
 #pragma once
 #include "SensorData.h"
 
@@ -7,7 +6,6 @@ public:
     void setStartPoint(double lat, double lon);
     float getBearingToStart(double lat, double lon) const;
     float getDistanceToStartMeters(double lat, double lon) const;
-
     void updateDeadReckoning(LiveSnapshot& snap, float dtSeconds);
 
     bool hasStartFix() const { return startFixSet; }

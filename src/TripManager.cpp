@@ -1,4 +1,3 @@
-// src/TripManager.cpp
 #include "TripManager.h"
 #include <math.h>
 
@@ -37,13 +36,11 @@ void TripManager::updateDeadReckoning(LiveSnapshot& snap, float dtSeconds) {
         return;
     }
 
-    // Dead Reckoning fallback: Displace last position by speed & heading
     if (lastKnownLat != 0.0 && lastKnownLon != 0.0) {
         snap.isDeadReckoning = true;
         float distanceTraveled = lastKnownSpeedMps * dtSeconds;
         double headingRad = snap.headingDeg * M_PI / 180.0;
 
-        // Approx displacement over small steps
         double deltaLat = (distanceTraveled * cos(headingRad)) / 111139.0;
         double deltaLon = (distanceTraveled * sin(headingRad)) / (111139.0 * cos(lastKnownLat * M_PI / 180.0));
 

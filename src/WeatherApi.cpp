@@ -1,4 +1,3 @@
-// src/WeatherApi.cpp
 #include "WeatherApi.h"
 #include "Config.h"
 
@@ -11,7 +10,6 @@ bool WeatherApi::fetch(double lat, double lon, LiveSnapshot& snap) {
     if (WiFi.status() != WL_CONNECTED) return false;
 
     HTTPClient http;
-    // 1. Wind Speed from Open-Meteo
     String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + 
                         String(lat, 4) + "&longitude=" + String(lon, 4) + 
                         "&current=wind_speed_10m";
@@ -26,7 +24,6 @@ bool WeatherApi::fetch(double lat, double lon, LiveSnapshot& snap) {
         http.end();
     }
 
-    // 2. Wave Height from Open-Meteo Marine
     String marineUrl = "https://marine-api.open-meteo.com/v1/marine?latitude=" + 
                        String(lat, 4) + "&longitude=" + String(lon, 4) + 
                        "&current=wave_height";

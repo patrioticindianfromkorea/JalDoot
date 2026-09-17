@@ -8,7 +8,7 @@ public:
     void init();
     void setEnabled(bool enabled);
     void updateTargetAngle(float targetAngleDeg);
-    void tick(); // Non-blocking step generation, call frequently in loop()
+    void tick();
 
 private:
     int _stepPin;

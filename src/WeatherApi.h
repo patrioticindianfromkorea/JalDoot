@@ -1,4 +1,3 @@
-// src/WeatherApi.h
 #pragma once
 #include <WiFi.h>
 #include <HTTPClient.h>

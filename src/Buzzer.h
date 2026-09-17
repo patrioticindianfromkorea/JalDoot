@@ -11,7 +11,7 @@ public:
 
     static void shortBeep() {
         digitalWrite(Pins::BUZZER_PIN, HIGH);
-        delay(50);
+        delay(40);
         digitalWrite(Pins::BUZZER_PIN, LOW);
     }
 
@@ -24,18 +24,18 @@ public:
     static void stormAlarm() {
         for (int i = 0; i < 3; i++) {
             digitalWrite(Pins::BUZZER_PIN, HIGH);
-            delay(120);
+            delay(100);
             digitalWrite(Pins::BUZZER_PIN, LOW);
             delay(80);
         }
     }
 
     static void emergencyTone() {
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 4; i++) {
             digitalWrite(Pins::BUZZER_PIN, HIGH);
-            delay(250);
+            delay(200);
             digitalWrite(Pins::BUZZER_PIN, LOW);
-            delay(100);
+            delay(80);
         }
     }
 };

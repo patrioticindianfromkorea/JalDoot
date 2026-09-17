@@ -1,4 +1,3 @@
-// src/DisplayManager.cpp
 #include "DisplayManager.h"
 #include <math.h>
 
@@ -10,8 +9,6 @@ void DisplayManager::init() {
 }
 
 void DisplayManager::setAutoContrast(int ambientLightRaw) {
-    // Ambient Light range 0 - 4095
-    // Map to contrast register 0x01 (dimmest readable) to 0xFF (maximum direct sunlight brightness)
     uint8_t contrast = map(constrain(ambientLightRaw, 200, 3800), 200, 3800, 5, 255);
     display.ssd1306_command(SSD1306_SETCONTRAST);
     display.ssd1306_command(contrast);
@@ -36,13 +33,12 @@ void DisplayManager::drawCompassArrow(int cx, int cy, float angleDeg) {
 void DisplayManager::render(SystemMode mode, int page, const LiveSnapshot& snap, const TripManager& trip, bool pointToNorth) {
     display.clearDisplay();
 
-    // Critical Alarms Overlay
     if (snap.capsizeAlarm) {
         display.setTextSize(2);
-        display.setCursor(10, 20);
+        display.setCursor(12, 18);
         display.println("CAPSIZE!!");
         display.setTextSize(1);
-        display.setCursor(10, 45);
+        display.setCursor(12, 44);
         display.printf("Roll: %.0f Deg", snap.rollDeg);
         display.display();
         return;
@@ -50,7 +46,7 @@ void DisplayManager::render(SystemMode mode, int page, const LiveSnapshot& snap,
 
     if (mode == SystemMode::LOGGING) {
         switch (page % 3) {
-            case 0: // Environmental & Barometer Tendency
+            case 0:
                 drawHeader("LIVE: ATMOSPHERE");
                 display.setCursor(0, 13);
                 display.printf("T:%.1fC  H:%.0f%%\n", snap.temperatureC, snap.humidity);
@@ -63,7 +59,7 @@ void DisplayManager::render(SystemMode mode, int page, const LiveSnapshot& snap,
                 }
                 break;
 
-            case 1: // Navigation & Dead Reckoning
+            case 1:
                 drawHeader(snap.isDeadReckoning ? "NAV: *EST DEAD-RECK" : "NAV: GNSS ACTIVE");
                 display.setCursor(0, 13);
                 display.printf("Lat: %.4f\n", snap.latitude);
@@ -72,7 +68,7 @@ void DisplayManager::render(SystemMode mode, int page, const LiveSnapshot& snap,
                 display.printf("Head: %.0f deg\n", snap.headingDeg);
                 break;
 
-            case 2: // Sea & Marine
+            case 2:
                 drawHeader("LIVE: SEA DYNAMICS");
                 display.setCursor(0, 13);
                 display.printf("Pitch/Roll: %.0f/%.0f\n", snap.pitchDeg, snap.rollDeg);
@@ -81,7 +77,7 @@ void DisplayManager::render(SystemMode mode, int page, const LiveSnapshot& snap,
                 display.printf("Wave: %.2f m\n", snap.waveHeightM);
                 break;
         }
-    } else { // FISHING MODE: Bite Activity & Steering Needle
+    } else {
         drawHeader(pointToNorth ? "FISH: TO NORTH" : "FISH: TO ANCHOR");
         float targetAngle = 0.0f;
 
