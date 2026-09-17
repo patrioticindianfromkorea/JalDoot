@@ -4,43 +4,32 @@
 
 void SensorHub::initMPU6500() {
     Wire.beginTransmission(0x68);
-    if (Wire.endTransmission() == 0) {
-        mpuDetected = true;
-        // Wake up MPU-6500 (clear SLEEP bit)
-        Wire.beginTransmission(0x68);
-        Wire.write(0x6B);
-        Wire.write(0x00);
-        Wire.endTransmission();
+    Wire.write(0x6B);
+    Wire.write(0x00);
+    Wire.endTransmission();
+}
 
-        // Configure Low Pass Filter
-        Wire.beginTransmission(0x68);
-        Wire.write(0x1A);
-        Wire.write(0x03);
-        Wire.endTransmission();
+void SensorHub::readMPU6500(int16_t& ax, int16_t& ay, int16_t& az, int16_t& gx, int16_t& gy, int16_t& gz) {
+    Wire.beginTransmission(0x68);
+    Wire.write(0x3B);
+    Wire.endTransmission(false);
+    if (Wire.requestFrom((uint8_t)0x68, (uint8_t)14) == 14) {
+        ax = (int16_t)((Wire.read() << 8) | Wire.read());
+        ay = (int16_t)((Wire.read() << 8) | Wire.read());
+        az = (int16_t)((Wire.read() << 8) | Wire.read());
+        Wire.read(); Wire.read();
+        gx = (int16_t)((Wire.read() << 8) | Wire.read());
+        gy = (int16_t)((Wire.read() << 8) | Wire.read());
+        gz = (int16_t)((Wire.read() << 8) | Wire.read());
     }
 }
 
-bool SensorHub::readMPU6500(int16_t& ax, int16_t& ay, int16_t& az, int16_t& gx, int16_t& gy, int16_t& gz) {
-    if (!mpuDetected) return false;
-    Wire.beginTransmission(0x68);
-    Wire.write(0x3B);
-    if (Wire.endTransmission(false) != 0) return false;
-
-    if (Wire.requestFrom((uint8_t)0x68, (uint8_t)14) == 14) {
-        ax = (Wire.read() << 8) | Wire.read();
-        ay = (Wire.read() << 8) | Wire.read();
-        az = (Wire.read() << 8) | Wire.read();
-        Wire.read(); Wire.read(); // Skip Temperature
-        gx = (Wire.read() << 8) | Wire.read();
-        gy = (Wire.read() << 8) | Wire.read();
-        gz = (Wire.read() << 8) | Wire.read();
-        return true;
-    }
-    return false;
+void SensorHub::setMagnetometerCalibration(float xOffset, float yOffset) {
+    magOffsetX = xOffset;
+    magOffsetY = yOffset;
 }
 
 void SensorHub::initMagnetometer() {
-    // Probe QMC5883L (0x0D)
     Wire.beginTransmission(0x0D);
     if (Wire.endTransmission() == 0) {
         magAddress = 0x0D;
@@ -52,8 +41,6 @@ void SensorHub::initMagnetometer() {
         Wire.endTransmission();
         return;
     }
-
-    // Probe HMC5883L (0x1E)
     Wire.beginTransmission(0x1E);
     if (Wire.endTransmission() == 0) {
         magAddress = 0x1E;
@@ -88,9 +75,77 @@ bool SensorHub::readRawMag(int16_t& mx, int16_t& my, int16_t& mz) {
     return false;
 }
 
-void SensorHub::setMagnetometerCalibration(float xOffset, float yOffset) {
-    magOffsetX = xOffset;
-    magOffsetY = yOffset;
+void SensorHub::processBarometerTrend(LiveSnapshot& snap) {
+    unsigned long now = millis();
+    if (now - lastPressureLogTime >= 300000 || lastPressureLogTime == 0) {
+        lastPressureLogTime = now;
+        pressureHistory[pressureIndex] = snap.pressureHpa;
+        pressureIndex = (pressureIndex + 1) % PRESSURE_SAMPLES;
+        if (pressureIndex == 0) historyFull = true;
+    }
+
+    int oldestIndex = historyFull ? pressureIndex : 0;
+    snap.pressureDelta3h = snap.pressureHpa - pressureHistory[oldestIndex];
+
+    if (snap.pressureDelta3h <= -3.0f) snap.baroState = BaroTendency::STORM_WARNING;
+    else if (snap.pressureDelta3h <= -1.0f) snap.baroState = BaroTendency::FALLING;
+    else if (snap.pressureDelta3h >= 1.0f) snap.baroState = BaroTendency::RISING;
+    else snap.baroState = BaroTendency::STEADY;
+}
+
+void SensorHub::processBilgeTrend(LiveSnapshot& snap) {
+    unsigned long now = millis();
+    if (now - lastWaterLogTime >= 1000) {
+        lastWaterLogTime = now;
+        int prev = waterHistory[waterIndex];
+        waterHistory[waterIndex] = snap.waterRaw;
+        waterIndex = (waterIndex + 1) % 10;
+
+        if (snap.waterRaw > Thresholds::BILGE_HIGH_ABOVE && (snap.waterRaw - prev) > 200) {
+            snap.bilgeAlarm = true;
+        } else if (snap.waterRaw <= Thresholds::BILGE_HIGH_ABOVE) {
+            snap.bilgeAlarm = false;
+        }
+    }
+}
+
+void SensorHub::processRainDebounce(LiveSnapshot& snap) {
+    if (snap.rainRaw < Thresholds::RAIN_WET_BELOW) {
+        if (rainDetectStart == 0) rainDetectStart = millis();
+        else if (millis() - rainDetectStart >= 5000) snap.isRainingConfirmed = true;
+    } else {
+        rainDetectStart = 0;
+        snap.isRainingConfirmed = false;
+    }
+}
+
+void SensorHub::processSolunar(LiveSnapshot& snap) {
+    if (!gps.date.isValid()) return;
+
+    int y = gps.date.year();
+    int m = gps.date.month();
+    int d = gps.date.day();
+
+    if (m < 3) { y--; m += 12; }
+    int a = y / 100;
+    int b = a / 4;
+    int c = 2 - a + b;
+    int e = (int)(365.25 * (y + 4716));
+    int f = (int)(30.6001 * (m + 1));
+    double jd = c + d + e + f - 1524.5;
+    double daysSinceNew = fmod(jd - 2451549.5, 29.530588853);
+    if (daysSinceNew < 0) daysSinceNew += 29.530588853;
+
+    if (daysSinceNew < 3.7 || daysSinceNew > 25.8) {
+        snap.moonPhaseIndex = 0;
+        snap.biteRating = 4;
+    } else if (daysSinceNew >= 11.0 && daysSinceNew <= 18.5) {
+        snap.moonPhaseIndex = 2;
+        snap.biteRating = 4;
+    } else {
+        snap.moonPhaseIndex = (daysSinceNew < 14.7) ? 1 : 3;
+        snap.biteRating = 2;
+    }
 }
 
 void SensorHub::init() {
@@ -109,81 +164,6 @@ void SensorHub::init() {
     for (int i = 0; i < 10; i++) waterHistory[i] = 0;
 }
 
-void SensorHub::processBarometerTrend(LiveSnapshot& snap) {
-    unsigned long now = millis();
-    if (now - lastPressureLogTime >= 300000 || lastPressureLogTime == 0) {
-        lastPressureLogTime = now;
-        pressureHistory[pressureIndex] = snap.pressureHpa;
-        pressureIndex = (pressureIndex + 1) % PRESSURE_SAMPLES;
-        if (pressureIndex == 0) historyFull = true;
-    }
-
-    int oldestIndex = historyFull ? pressureIndex : 0;
-    snap.pressureDelta3h = snap.pressureHpa - pressureHistory[oldestIndex];
-
-    if (snap.pressureDelta3h <= -3.0f) {
-        snap.baroState = BaroTendency::STORM_WARNING;
-    } else if (snap.pressureDelta3h <= -1.0f) {
-        snap.baroState = BaroTendency::FALLING;
-    } else if (snap.pressureDelta3h >= 1.0f) {
-        snap.baroState = BaroTendency::RISING;
-    } else {
-        snap.baroState = BaroTendency::STEADY;
-    }
-}
-
-void SensorHub::processBilgeTrend(LiveSnapshot& snap) {
-    unsigned long now = millis();
-    if (now - lastWaterLogTime >= 1000) {
-        lastWaterLogTime = now;
-        int prev = waterHistory[waterIndex];
-        waterHistory[waterIndex] = snap.waterRaw;
-        waterIndex = (waterIndex + 1) % 10;
-
-        if (snap.waterRaw > Thresholds::BILGE_HIGH_ABOVE && (snap.waterRaw - prev) > 180) {
-            snap.bilgeAlarm = true;
-        } else if (snap.waterRaw <= Thresholds::BILGE_HIGH_ABOVE) {
-            snap.bilgeAlarm = false;
-        }
-    }
-}
-
-void SensorHub::processRainDebounce(LiveSnapshot& snap) {
-    if (snap.rainRaw < Thresholds::RAIN_WET_BELOW) {
-        if (rainDetectStart == 0) rainDetectStart = millis();
-        else if (millis() - rainDetectStart >= 4000) snap.isRainingConfirmed = true;
-    } else {
-        rainDetectStart = 0;
-        snap.isRainingConfirmed = false;
-    }
-}
-
-void SensorHub::processSolunar(LiveSnapshot& snap) {
-    if (!gps.date.isValid()) return;
-    int y = gps.date.year();
-    int m = gps.date.month();
-    int d = gps.date.day();
-
-    if (m < 3) { y--; m += 12; }
-    int a = y / 100;
-    int b = a / 4;
-    int c = 2 - a + b;
-    int e = (int)(365.25 * (y + 4716));
-    int f = (int)(30.6001 * (m + 1));
-    double jd = c + d + e + f - 1524.5;
-    double daysSinceNew = fmod(jd - 2451549.5, 29.530588853);
-    if (daysSinceNew < 0) daysSinceNew += 29.530588853;
-
-    if (daysSinceNew < 3.5 || daysSinceNew > 26.0) {
-        snap.moonPhaseIndex = 0; snap.biteRating = 4;
-    } else if (daysSinceNew >= 11.5 && daysSinceNew <= 18.0) {
-        snap.moonPhaseIndex = 2; snap.biteRating = 4;
-    } else {
-        snap.moonPhaseIndex = (daysSinceNew < 14.7) ? 1 : 3;
-        snap.biteRating = 2;
-    }
-}
-
 void SensorHub::update(LiveSnapshot& snap) {
     snap.temperatureC = dht.readTemperature();
     snap.humidity     = dht.readHumidity();
@@ -197,35 +177,34 @@ void SensorHub::update(LiveSnapshot& snap) {
     processBilgeTrend(snap);
     processRainDebounce(snap);
 
-    int16_t ax = 0, ay = 0, az = 16384, gx = 0, gy = 0, gz = 0;
-    if (readMPU6500(ax, ay, az, gx, gy, gz)) {
-        float pitch = atan2((float)-ax, sqrt((float)ay * ay + (float)az * az));
-        float roll  = atan2((float)ay, (float)az);
-        snap.pitchDeg = pitch * 180.0f / M_PI;
-        snap.rollDeg  = roll * 180.0f / M_PI;
+    int16_t ax, ay, az, gx, gy, gz;
+    readMPU6500(ax, ay, az, gx, gy, gz);
+    float pitch = atan2((float)-ax, sqrt((float)ay * ay + (float)az * az));
+    float roll  = atan2((float)ay, (float)az);
+    snap.pitchDeg = pitch * 180.0f / M_PI;
+    snap.rollDeg  = roll * 180.0f / M_PI;
 
-        if (fabs(snap.rollDeg) > Thresholds::HEEL_ALARM_DEG || fabs(snap.pitchDeg) > Thresholds::HEEL_ALARM_DEG) {
-            if (heelStartTimer == 0) heelStartTimer = millis();
-            else if (millis() - heelStartTimer >= 2000) snap.capsizeAlarm = true;
-        } else {
-            heelStartTimer = 0;
-            snap.capsizeAlarm = false;
-        }
+    if (fabs(snap.rollDeg) > 35.0f || fabs(snap.pitchDeg) > 35.0f) {
+        if (heelStartTimer == 0) heelStartTimer = millis();
+        else if (millis() - heelStartTimer >= 2000) snap.capsizeAlarm = true;
+    } else {
+        heelStartTimer = 0;
+        snap.capsizeAlarm = false;
+    }
 
-        float gyroMag = sqrt((float)gx * gx + (float)gy * gy + (float)gz * gz) / 131.0f;
-        snap.rockingIndex = (snap.rockingIndex * 0.85f) + (gyroMag * 0.15f);
+    float gyroMag = sqrt((float)gx * gx + (float)gy * gy + (float)gz * gz) / 131.0f;
+    snap.rockingIndex = (snap.rockingIndex * 0.85f) + (gyroMag * 0.15f);
 
-        int16_t rawMx, rawMy, rawMz;
-        if (readRawMag(rawMx, rawMy, rawMz)) {
-            float mx = (float)rawMx - magOffsetX;
-            float my = (float)rawMy - magOffsetY;
-            float mz = (float)rawMz;
-            float Xh = mx * cos(pitch) + mz * sin(pitch);
-            float Yh = mx * sin(roll) * sin(pitch) + my * cos(roll) - mz * sin(roll) * cos(pitch);
-            float heading = atan2(-Yh, Xh) * 180.0f / M_PI;
-            if (heading < 0.0f) heading += 360.0f;
-            snap.headingDeg = heading;
-        }
+    int16_t rawMx, rawMy, rawMz;
+    if (readRawMag(rawMx, rawMy, rawMz)) {
+        float mx = (float)rawMx - magOffsetX;
+        float my = (float)rawMy - magOffsetY;
+        float mz = (float)rawMz;
+        float Xh = mx * cos(pitch) + mz * sin(pitch);
+        float Yh = mx * sin(roll) * sin(pitch) + my * cos(roll) - mz * sin(roll) * cos(pitch);
+        float heading = atan2(-Yh, Xh) * 180.0f / M_PI;
+        if (heading < 0.0f) heading += 360.0f;
+        snap.headingDeg = heading;
     }
 
     while (gpsSerial.available() > 0) gps.encode(gpsSerial.read());

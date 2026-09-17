@@ -2,7 +2,6 @@
 #include "Config.h"
 
 void WeatherApi::init() {
-    WiFi.mode(WIFI_STA);
     WiFi.begin(NetConfig::WIFI_SSID, NetConfig::WIFI_PASSWORD);
 }
 
@@ -10,31 +9,36 @@ bool WeatherApi::fetch(double lat, double lon, LiveSnapshot& snap) {
     if (WiFi.status() != WL_CONNECTED) return false;
 
     HTTPClient http;
-    String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + 
-                        String(lat, 4) + "&longitude=" + String(lon, 4) + 
-                        "&current=wind_speed_10m";
+    char url[256];
 
-    if (http.begin(weatherUrl)) {
-        if (http.GET() == HTTP_CODE_OK) {
-            JsonDocument doc;
-            deserializeJson(doc, http.getString());
-            snap.windSpeedKmh = doc["current"]["wind_speed_10m"].as<float>();
+    snprintf(url, sizeof(url),
+        "http://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=wind_speed_10m",
+        lat, lon);
+
+    http.begin(url);
+    if (http.GET() == HTTP_CODE_OK) {
+        JsonDocument doc;
+        deserializeJson(doc, http.getString());
+        if (doc.containsKey("current")) {
+            snap.windSpeedKmh = doc["current"]["wind_speed_10m"] | 0.0f;
             snap.apiValid = true;
         }
-        http.end();
     }
+    http.end();
 
-    String marineUrl = "https://marine-api.open-meteo.com/v1/marine?latitude=" + 
-                       String(lat, 4) + "&longitude=" + String(lon, 4) + 
-                       "&current=wave_height";
+    snprintf(url, sizeof(url),
+        "http://marine-api.open-meteo.com/v1/marine?latitude=%.4f&longitude=%.4f&current=wave_height",
+        lat, lon);
 
-    if (http.begin(marineUrl)) {
-        if (http.GET() == HTTP_CODE_OK) {
-            JsonDocument marineDoc;
-            deserializeJson(marineDoc, http.getString());
-            snap.waveHeightM = marineDoc["current"]["wave_height"].as<float>();
+    http.begin(url);
+    if (http.GET() == HTTP_CODE_OK) {
+        JsonDocument doc;
+        deserializeJson(doc, http.getString());
+        if (doc.containsKey("current")) {
+            snap.waveHeightM = doc["current"]["wave_height"] | 0.0f;
         }
-        http.end();
     }
+    http.end();
+
     return snap.apiValid;
 }

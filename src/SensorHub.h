@@ -17,7 +17,6 @@ private:
     TinyGPSPlus gps;
     HardwareSerial gpsSerial{1};
 
-    bool mpuDetected = false;
     uint8_t magAddress = 0;
     float magOffsetX = 0.0f;
     float magOffsetY = 0.0f;
@@ -31,14 +30,14 @@ private:
     int waterHistory[10];
     int waterIndex = 0;
     unsigned long lastWaterLogTime = 0;
+
     unsigned long rainDetectStart = 0;
     unsigned long heelStartTimer = 0;
 
     void initMPU6500();
-    bool readMPU6500(int16_t& ax, int16_t& ay, int16_t& az, int16_t& gx, int16_t& gy, int16_t& gz);
+    void readMPU6500(int16_t& ax, int16_t& ay, int16_t& az, int16_t& gx, int16_t& gy, int16_t& gz);
     void initMagnetometer();
     bool readRawMag(int16_t& mx, int16_t& my, int16_t& mz);
-
     void processBarometerTrend(LiveSnapshot& snap);
     void processBilgeTrend(LiveSnapshot& snap);
     void processRainDebounce(LiveSnapshot& snap);

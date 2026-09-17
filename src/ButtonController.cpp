@@ -1,33 +1,37 @@
 #include "ButtonController.h"
 
-void ButtonController::init(int p) {
-    pin = p;
-    pinMode(pin, INPUT_PULLUP);
+void ButtonController::init(int pin) {
+    _pin = pin;
+    pinMode(_pin, INPUT_PULLUP);
 }
 
 ButtonEvent ButtonController::update() {
-    bool current = digitalRead(pin);
+    bool raw = digitalRead(_pin);
     unsigned long now = millis();
-    ButtonEvent evt = ButtonEvent::NONE;
+    ButtonEvent result = ButtonEvent::NONE;
 
-    if (current == LOW && lastState == HIGH) {
-        pressStartTime = now;
-    } else if (current == HIGH && lastState == LOW) {
-        unsigned long duration = now - pressStartTime;
-        if (duration >= 1500) {
-            evt = ButtonEvent::LONG_PRESS;
-            clickCount = 0;
-        } else {
-            clickCount++;
-            lastReleaseTime = now;
+    if (_lastState == HIGH && raw == LOW) {
+        _downTime = now;
+        _longPressHandled = false;
+    } else if (_lastState == LOW && raw == LOW) {
+        if (!_longPressHandled && (now - _downTime >= 1500)) {
+            _longPressHandled = true;
+            _clickCount = 0;
+            result = ButtonEvent::LONG_PRESS;
+        }
+    } else if (_lastState == LOW && raw == HIGH) {
+        if (!_longPressHandled && (now - _downTime < 1500)) {
+            _clickCount++;
+            _lastReleaseTime = now;
         }
     }
 
-    if (clickCount > 0 && (now - lastReleaseTime > 280)) {
-        evt = (clickCount == 1) ? ButtonEvent::SHORT_PRESS : ButtonEvent::DOUBLE_CLICK;
-        clickCount = 0;
+    if (_clickCount > 0 && (now - _lastReleaseTime > 300)) {
+        if (_clickCount == 1) result = ButtonEvent::SHORT_PRESS;
+        else if (_clickCount >= 2) result = ButtonEvent::DOUBLE_CLICK;
+        _clickCount = 0;
     }
 
-    lastState = current;
-    return evt;
+    _lastState = raw;
+    return result;
 }

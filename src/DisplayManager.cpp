@@ -35,10 +35,10 @@ void DisplayManager::render(SystemMode mode, int page, const LiveSnapshot& snap,
 
     if (snap.capsizeAlarm) {
         display.setTextSize(2);
-        display.setCursor(12, 18);
+        display.setCursor(10, 20);
         display.println("CAPSIZE!!");
         display.setTextSize(1);
-        display.setCursor(12, 44);
+        display.setCursor(10, 45);
         display.printf("Roll: %.0f Deg", snap.rollDeg);
         display.display();
         return;

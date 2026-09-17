@@ -9,9 +9,10 @@ public:
     ButtonEvent update();
 
 private:
-    int pin = -1;
-    bool lastState = HIGH;
-    unsigned long pressStartTime = 0;
-    unsigned long lastReleaseTime = 0;
-    int clickCount = 0;
+    int _pin = 6;
+    bool _lastState = true;
+    unsigned long _downTime = 0;
+    unsigned long _lastReleaseTime = 0;
+    int _clickCount = 0;
+    bool _longPressHandled = false;
 };
